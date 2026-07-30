@@ -35,6 +35,36 @@ def _syndication_extract(twid):
         except ValueError:
             pass
 
+    media = []
+    for p in photos:
+        media.append({
+            "type": "image",
+            "url": p.get("url", ""),
+            "thumbnail": p.get("url", ""),
+            "width": p.get("width"),
+            "height": p.get("height"),
+        })
+
+    video_data = data.get("video")
+    if video_data and video_data.get("variants"):
+        for v in video_data.get("variants", []):
+            if v.get("content_type", "").startswith("video/") and v.get("url"):
+                is_hls = ".m3u8" in v.get("url", "")
+                media.append({
+                    "type": "video",
+                    "url": v["url"],
+                    "format": "mp4" if not is_hls else "hls",
+                    "thumbnail": video_data.get("posterImageUrl", ""),
+                    "width": video_data.get("width"),
+                    "height": video_data.get("height"),
+                })
+                break
+
+    views_raw = data.get("views")
+    views = None
+    if isinstance(views_raw, dict):
+        views = views_raw.get("count")
+
     return {
         "text": text,
         "author": {
@@ -47,35 +77,11 @@ def _syndication_extract(twid):
             "likes": data.get("favorite_count"),
             "retweets": data.get("retweet_count"),
             "replies": data.get("reply_count"),
-            "views": None,
+            "views": views,
         },
-        "photos": [{"type": "image", "url": p.get("url", ""), "thumbnail": p.get("url", ""), "width": p.get("width"), "height": p.get("height")} for p in photos],
+        "media": media,
     }
 
-
-def _extract_tweet_meta(info):
-    ts = info.get("timestamp")
-    date_str = None
-    if ts:
-        try:
-            date_str = datetime.utcfromtimestamp(ts).isoformat()
-        except (TypeError, ValueError):
-            pass
-    return {
-        "text": info.get("description", ""),
-        "author": {
-            "name": info.get("uploader", ""),
-            "handle": info.get("uploader_id", ""),
-            "url": info.get("uploader_url", ""),
-        },
-        "date": date_str,
-        "stats": {
-            "likes": info.get("like_count"),
-            "retweets": info.get("repost_count"),
-            "replies": info.get("comment_count"),
-            "views": info.get("view_count"),
-        },
-    }
 
 HTML = (Path(__file__).parent / "templates" / "index.html").read_text(encoding="utf-8")
 
@@ -103,79 +109,55 @@ def get_media(req: TweetRequest):
     if not re.match(r'https?://(?:www\.|m\.)?(?:twitter|x)\.com/(?:\w+|i)/status/\d+', url):
         raise HTTPException(400, "URL inválida. Ingresa un enlace de tweet de X/Twitter.")
 
+    status_id = re.search(r'/status/(\d+)', url)
+    if not status_id:
+        raise HTTPException(400, "URL inválida.")
+    twid = status_id.group(1)
+
+    synd = _syndication_extract(twid)
+
+    ydl_opts = {"quiet": True, "no_warnings": True, "extract_flat": False}
     try:
-        ydl_opts = {
-            "quiet": True,
-            "no_warnings": True,
-            "extract_flat": False,
-        }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
-    except (yt_dlp.utils.ExtractorError, yt_dlp.utils.DownloadError) as e:
-        msg = str(e)
-        if "no video could be found" in msg.lower():
-            status_id = re.search(r'/status/(\d+)', url)
-            if status_id:
-                try:
-                    synd = _syndication_extract(status_id.group(1))
-                    tweet = {
-                        "text": synd["text"],
-                        "author": synd["author"],
-                        "date": synd["date"],
-                        "stats": synd["stats"],
-                    }
-                    return {"tweet": tweet, "media": synd["photos"], "tweet_url": url}
-                except Exception:
-                    pass
-            raise HTTPException(404, "No se encontraron videos ni imágenes en este tweet.")
-        if "not found" in msg.lower() or "unavailable" in msg.lower() or "deleted" in msg.lower():
-            raise HTTPException(404, "Tweet no encontrado. Puede estar eliminado o ser privado.")
-        raise HTTPException(422, f"No se pudo acceder al tweet: {msg}")
+        entries = info.get("entries") or [info]
 
-    entries = info.get("entries") or [info]
-    results = []
+        yt_videos = []
+        for entry in entries:
+            formats = entry.get("formats", [])
+            thumbnail = entry.get("thumbnail", "")
+            title = entry.get("title", "")
+            videos = [f for f in formats if f.get("vcodec") != "none"]
+            if videos:
+                mp4_videos = [f for f in videos if "m3u8" not in (f.get("url", "") or "")]
+                best = max(mp4_videos, key=lambda f: (f.get("height") or 0, f.get("tbr") or 0)) if mp4_videos else max(videos, key=lambda f: (f.get("height") or 0, f.get("tbr") or 0))
+                yt_videos.append({
+                    "type": "video",
+                    "url": best["url"],
+                    "format": "mp4" if best in mp4_videos else "hls",
+                    "thumbnail": thumbnail,
+                    "width": best.get("width"),
+                    "height": best.get("height"),
+                    "title": title,
+                    "duration": entry.get("duration"),
+                })
 
-    for entry in entries:
-        formats = entry.get("formats", [])
-        thumbnail = entry.get("thumbnail", "")
-        title = entry.get("title", "")
+        if yt_videos:
+            images = [m for m in synd["media"] if m["type"] == "image"]
+            synd["media"] = yt_videos + images
+    except Exception:
+        pass
 
-        videos = [f for f in formats if f.get("vcodec") != "none"]
-        if videos:
-            mp4_videos = [f for f in videos if "m3u8" not in (f.get("url", "") or "")]
-            best = None
-            if mp4_videos:
-                best = max(mp4_videos, key=lambda f: (f.get("height") or 0, f.get("tbr") or 0))
-            else:
-                best = max(videos, key=lambda f: (f.get("height") or 0, f.get("tbr") or 0))
-            results.append({
-                "type": "video",
-                "url": best["url"],
-                "format": "mp4" if best in mp4_videos else "hls",
-                "thumbnail": thumbnail,
-                "width": best.get("width"),
-                "height": best.get("height"),
-                "title": title,
-                "duration": entry.get("duration"),
-            })
-        elif thumbnail:
-            results.append({
-                "type": "image",
-                "url": thumbnail,
-                "thumbnail": thumbnail,
-                "title": title,
-            })
-        elif entry.get("url"):
-            results.append({
-                "type": "image",
-                "url": entry["url"],
-                "thumbnail": thumbnail or entry["url"],
-                "title": title,
-            })
-
-    tweet = _extract_tweet_meta(info)
-
-    if not results and not tweet:
+    if not synd["media"]:
         raise HTTPException(404, "No se encontraron videos ni imágenes en este tweet.")
 
-    return {"tweet": tweet, "media": results, "tweet_url": url}
+    return {
+        "tweet": {
+            "text": synd["text"],
+            "author": synd["author"],
+            "date": synd["date"],
+            "stats": synd["stats"],
+        },
+        "media": synd["media"],
+        "tweet_url": url,
+    }
