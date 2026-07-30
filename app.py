@@ -18,7 +18,8 @@ _original_raise_no_formats = yt_dlp.extractor.common.InfoExtractor.raise_no_form
 
 
 def _patched_raise_no_formats(self, msg, *args, **kwargs):
-    if "no video could be found" in str(msg).lower():
+    msg_lower = str(msg).lower()
+    if "no video" in msg_lower or "no formats" in msg_lower:
         return
     _original_raise_no_formats(self, msg, *args, **kwargs)
 
