@@ -24,6 +24,8 @@ body {
   padding: 2rem;
   width: 100%;
   max-width: 640px;
+  max-height: 90dvh;
+  overflow-y: auto;
 }
 h1 { font-size: 1.4rem; margin-bottom: .25rem; }
 p.sub { color: #666; font-size: .9rem; margin-bottom: 1.5rem; }
@@ -159,7 +161,9 @@ img { height: auto; }
   line-height: 1.5;
   white-space: pre-wrap;
   word-wrap: break-word;
+  overflow-wrap: break-word;
   margin-bottom: .75rem;
+  max-height: none;
 }
 .tweet-stats {
   display: flex;
