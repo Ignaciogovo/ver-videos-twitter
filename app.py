@@ -1,5 +1,5 @@
 from datetime import datetime
-import json as jsonlib
+import json
 from pathlib import Path
 import re
 import urllib.request
@@ -10,11 +10,35 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 
+def _parse_media(item):
+    mtype = item.get("type", "")
+    if mtype in ("photo", "image"):
+        return {
+            "type": "image",
+            "url": item.get("url", ""),
+            "thumbnail": item.get("url", ""),
+            "width": item.get("width"),
+            "height": item.get("height"),
+        }
+    if mtype in ("video", "gif"):
+        url_val = item.get("url", "")
+        return {
+            "type": "video",
+            "url": url_val,
+            "format": "mp4" if ".m3u8" not in url_val else "hls",
+            "thumbnail": item.get("thumbnail_url", ""),
+            "width": item.get("width"),
+            "height": item.get("height"),
+            "duration": item.get("duration"),
+        }
+    return None
+
+
 def _fxtwitter_extract(twid):
     url = f"https://api.fxtwitter.com/status/{twid}"
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     with urllib.request.urlopen(req, timeout=15) as resp:
-        data = jsonlib.loads(resp.read())
+        data = json.loads(resp.read())
 
     if data.get("code") != 200:
         return None
@@ -36,50 +60,16 @@ def _fxtwitter_extract(twid):
 
     media = []
     for item in (tweet.get("media", {}).get("all", []) or []):
-        mtype = item.get("type", "")
-        if mtype in ("photo", "image"):
-            media.append({
-                "type": "image",
-                "url": item.get("url", ""),
-                "thumbnail": item.get("url", ""),
-                "width": item.get("width"),
-                "height": item.get("height"),
-            })
-        elif mtype in ("video", "gif"):
-            url_val = item.get("url", "")
-            media.append({
-                "type": "video",
-                "url": url_val,
-                "format": "mp4" if ".m3u8" not in url_val else "hls",
-                "thumbnail": item.get("thumbnail_url", ""),
-                "width": item.get("width"),
-                "height": item.get("height"),
-                "duration": item.get("duration"),
-            })
+        parsed = _parse_media(item)
+        if parsed:
+            media.append(parsed)
 
     quote = tweet.get("quote")
     if quote:
         for item in (quote.get("media", {}).get("all", []) or []):
-            mtype = item.get("type", "")
-            if mtype in ("photo", "image"):
-                media.append({
-                    "type": "image",
-                    "url": item.get("url", ""),
-                    "thumbnail": item.get("url", ""),
-                    "width": item.get("width"),
-                    "height": item.get("height"),
-                })
-            elif mtype in ("video", "gif"):
-                url_val = item.get("url", "")
-                media.append({
-                    "type": "video",
-                    "url": url_val,
-                    "format": "mp4" if ".m3u8" not in url_val else "hls",
-                    "thumbnail": item.get("thumbnail_url", ""),
-                    "width": item.get("width"),
-                    "height": item.get("height"),
-                    "duration": item.get("duration"),
-                })
+            parsed = _parse_media(item)
+            if parsed:
+                media.append(parsed)
 
     return {
         "text": text,
@@ -122,13 +112,10 @@ def index():
 @app.post("/api/media")
 def get_media(req: TweetRequest):
     url = req.url.strip()
-    if not re.match(r'https?://(?:www\.|m\.)?(?:twitter|x)\.com/(?:\w+|i)/status/\d+', url):
+    m = re.match(r'https?://(?:www\.|m\.)?(?:twitter|x)\.com/(?:\w+|i)/status/(\d+)', url)
+    if not m:
         raise HTTPException(400, "URL inválida. Ingresa un enlace de tweet de X/Twitter.")
-
-    status_id = re.search(r'/status/(\d+)', url)
-    if not status_id:
-        raise HTTPException(400, "URL inválida.")
-    twid = status_id.group(1)
+    twid = m.group(1)
 
     try:
         result = _fxtwitter_extract(twid)
