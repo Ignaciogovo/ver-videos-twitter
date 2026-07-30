@@ -61,9 +61,7 @@ def _syndication_extract(twid):
                 break
 
     views_raw = data.get("views")
-    views = None
-    if isinstance(views_raw, dict):
-        views = views_raw.get("count")
+    views = views_raw.get("count") if isinstance(views_raw, dict) else None
 
     return {
         "text": text,
@@ -81,6 +79,24 @@ def _syndication_extract(twid):
         },
         "media": media,
     }
+
+
+_original_raise_no_formats = yt_dlp.extractor.common.InfoExtractor.raise_no_formats
+
+
+def _patched_raise_no_formats(self, msg, *args, **kwargs):
+    if "no video could be found" in str(msg).lower():
+        return
+    _original_raise_no_formats(self, msg, *args, **kwargs)
+
+
+def _ytdlp_extract(url):
+    yt_dlp.extractor.common.InfoExtractor.raise_no_formats = _patched_raise_no_formats
+    try:
+        with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "extract_flat": False}) as ydl:
+            return ydl.extract_info(url, download=False)
+    finally:
+        yt_dlp.extractor.common.InfoExtractor.raise_no_formats = _original_raise_no_formats
 
 
 HTML = (Path(__file__).parent / "templates" / "index.html").read_text(encoding="utf-8")
@@ -114,50 +130,97 @@ def get_media(req: TweetRequest):
         raise HTTPException(400, "URL inválida.")
     twid = status_id.group(1)
 
-    synd = _syndication_extract(twid)
-
-    ydl_opts = {"quiet": True, "no_warnings": True, "extract_flat": False}
+    info = None
+    yt_error = None
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-        entries = info.get("entries") or [info]
+        info = _ytdlp_extract(url)
+    except Exception as e:
+        yt_error = str(e)
 
-        yt_videos = []
-        for entry in entries:
-            formats = entry.get("formats", [])
-            thumbnail = entry.get("thumbnail", "")
-            title = entry.get("title", "")
-            videos = [f for f in formats if f.get("vcodec") != "none"]
-            if videos:
-                mp4_videos = [f for f in videos if "m3u8" not in (f.get("url", "") or "")]
-                best = max(mp4_videos, key=lambda f: (f.get("height") or 0, f.get("tbr") or 0)) if mp4_videos else max(videos, key=lambda f: (f.get("height") or 0, f.get("tbr") or 0))
-                yt_videos.append({
-                    "type": "video",
-                    "url": best["url"],
-                    "format": "mp4" if best in mp4_videos else "hls",
-                    "thumbnail": thumbnail,
-                    "width": best.get("width"),
-                    "height": best.get("height"),
-                    "title": title,
-                    "duration": entry.get("duration"),
-                })
+    if info:
+        tweet = _extract_tweet_meta_from_info(info)
+        media = _extract_media_from_info(info)
+        return {"tweet": tweet, "media": media, "tweet_url": url}
 
-        if yt_videos:
-            images = [m for m in synd["media"] if m["type"] == "image"]
-            synd["media"] = yt_videos + images
+    if not yt_error:
+        raise HTTPException(404, "No se pudo acceder al tweet.")
+
+    if "not found" in yt_error.lower() or "deleted" in yt_error.lower():
+        raise HTTPException(404, "Tweet no encontrado. Puede estar eliminado o ser privado.")
+    if "nsfw" in yt_error.lower():
+        raise HTTPException(404, "Tweet con contenido restringido. Requiere autenticación.")
+
+    try:
+        synd = _syndication_extract(twid)
+        if synd["media"] or synd["text"]:
+            return {"tweet": {"text": synd["text"], "author": synd["author"], "date": synd["date"], "stats": synd["stats"]}, "media": synd["media"], "tweet_url": url}
     except Exception:
         pass
 
-    if not synd["media"] and not synd["text"]:
-        raise HTTPException(404, "No se encontraron videos ni imágenes en este tweet.")
+    raise HTTPException(422, f"No se pudo acceder al tweet: {yt_error}")
 
+
+def _extract_tweet_meta_from_info(info):
+    ts = info.get("timestamp")
+    date_str = None
+    if ts:
+        try:
+            date_str = datetime.utcfromtimestamp(ts).isoformat()
+        except (TypeError, ValueError):
+            pass
     return {
-        "tweet": {
-            "text": synd["text"],
-            "author": synd["author"],
-            "date": synd["date"],
-            "stats": synd["stats"],
+        "text": info.get("description", ""),
+        "author": {
+            "name": info.get("uploader", ""),
+            "handle": info.get("uploader_id", ""),
+            "url": info.get("uploader_url", ""),
         },
-        "media": synd["media"],
-        "tweet_url": url,
+        "date": date_str,
+        "stats": {
+            "likes": info.get("like_count"),
+            "retweets": info.get("repost_count"),
+            "replies": info.get("comment_count"),
+            "views": info.get("view_count"),
+        },
     }
+
+
+def _extract_media_from_info(info):
+    entries = info.get("entries") or [info]
+    results = []
+
+    for entry in entries:
+        formats = entry.get("formats", [])
+        thumbnail = entry.get("thumbnail", "")
+        title = entry.get("title", "")
+
+        videos = [f for f in formats if f.get("vcodec") != "none"]
+        if videos:
+            mp4_videos = [f for f in videos if "m3u8" not in (f.get("url", "") or "")]
+            best = max(mp4_videos, key=lambda f: (f.get("height") or 0, f.get("tbr") or 0)) if mp4_videos else max(videos, key=lambda f: (f.get("height") or 0, f.get("tbr") or 0))
+            results.append({
+                "type": "video",
+                "url": best["url"],
+                "format": "mp4" if best in mp4_videos else "hls",
+                "thumbnail": thumbnail,
+                "width": best.get("width"),
+                "height": best.get("height"),
+                "title": title,
+                "duration": entry.get("duration"),
+            })
+        elif thumbnail:
+            results.append({
+                "type": "image",
+                "url": thumbnail,
+                "thumbnail": thumbnail,
+                "title": title,
+            })
+        elif entry.get("url"):
+            results.append({
+                "type": "image",
+                "url": entry["url"],
+                "thumbnail": thumbnail or entry["url"],
+                "title": title,
+            })
+
+    return results
