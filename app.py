@@ -1,11 +1,81 @@
+from datetime import datetime
+import json as jsonlib
+import math
 from pathlib import Path
 import re
+import urllib.request
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 import yt_dlp
+from yt_dlp.jsinterp import js_number_to_string
+
+
+def _syndication_token(twid):
+    return js_number_to_string((int(twid) / 1e15) * math.pi, 36).replace("0", "").replace(".", "")
+
+
+def _syndication_extract(twid):
+    token = _syndication_token(twid)
+    url = f"https://cdn.syndication.twimg.com/tweet-result?id={twid}&token={token}"
+    req = urllib.request.Request(url, headers={"User-Agent": "Googlebot"})
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        data = jsonlib.loads(resp.read())
+
+    user = data.get("user", {})
+    photos = data.get("photos") or []
+    text = data.get("text", "")
+    date_str = data.get("created_at")
+    if date_str:
+        try:
+            dt = datetime.strptime(date_str, "%a %b %d %H:%M:%S %z %Y")
+            date_str = dt.isoformat()
+        except ValueError:
+            pass
+
+    return {
+        "text": text,
+        "author": {
+            "name": user.get("name", ""),
+            "handle": user.get("screen_name", ""),
+            "url": f"https://x.com/{user.get('screen_name', '')}" if user.get("screen_name") else "",
+        },
+        "date": date_str,
+        "stats": {
+            "likes": data.get("favorite_count"),
+            "retweets": data.get("retweet_count"),
+            "replies": data.get("reply_count"),
+            "views": None,
+        },
+        "photos": [{"type": "image", "url": p.get("url", ""), "thumbnail": p.get("url", ""), "width": p.get("width"), "height": p.get("height")} for p in photos],
+    }
+
+
+def _extract_tweet_meta(info):
+    ts = info.get("timestamp")
+    date_str = None
+    if ts:
+        try:
+            date_str = datetime.utcfromtimestamp(ts).isoformat()
+        except (TypeError, ValueError):
+            pass
+    return {
+        "text": info.get("description", ""),
+        "author": {
+            "name": info.get("uploader", ""),
+            "handle": info.get("uploader_id", ""),
+            "url": info.get("uploader_url", ""),
+        },
+        "date": date_str,
+        "stats": {
+            "likes": info.get("like_count"),
+            "retweets": info.get("repost_count"),
+            "replies": info.get("comment_count"),
+            "views": info.get("view_count"),
+        },
+    }
 
 HTML = Path("public/index.html").read_text(encoding="utf-8")
 
@@ -44,6 +114,19 @@ def get_media(req: TweetRequest):
     except (yt_dlp.utils.ExtractorError, yt_dlp.utils.DownloadError) as e:
         msg = str(e)
         if "no video could be found" in msg.lower():
+            status_id = re.search(r'/status/(\d+)', url)
+            if status_id:
+                try:
+                    synd = _syndication_extract(status_id.group(1))
+                    tweet = {
+                        "text": synd["text"],
+                        "author": synd["author"],
+                        "date": synd["date"],
+                        "stats": synd["stats"],
+                    }
+                    return {"tweet": tweet, "media": synd["photos"], "tweet_url": url}
+                except Exception:
+                    pass
             raise HTTPException(404, "No se encontraron videos ni imágenes en este tweet.")
         if "not found" in msg.lower() or "unavailable" in msg.lower() or "deleted" in msg.lower():
             raise HTTPException(404, "Tweet no encontrado. Puede estar eliminado o ser privado.")
@@ -56,7 +139,6 @@ def get_media(req: TweetRequest):
         formats = entry.get("formats", [])
         thumbnail = entry.get("thumbnail", "")
         title = entry.get("title", "")
-        duration = entry.get("duration")
 
         videos = [f for f in formats if f.get("vcodec") != "none"]
         if videos:
@@ -74,7 +156,7 @@ def get_media(req: TweetRequest):
                 "width": best.get("width"),
                 "height": best.get("height"),
                 "title": title,
-                "duration": duration,
+                "duration": entry.get("duration"),
             })
         elif thumbnail:
             results.append({
@@ -91,7 +173,9 @@ def get_media(req: TweetRequest):
                 "title": title,
             })
 
-    if not results:
+    tweet = _extract_tweet_meta(info)
+
+    if not results and not tweet:
         raise HTTPException(404, "No se encontraron videos ni imágenes en este tweet.")
 
-    return {"media": results, "tweet_url": url}
+    return {"tweet": tweet, "media": results, "tweet_url": url}

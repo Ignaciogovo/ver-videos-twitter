@@ -1,26 +1,22 @@
-# ver-videos-twitter
+# AGENTS.md
 
-Web simple para ver videos e imágenes de tweets de X/Twitter sin necesidad de tener la app ni cuenta de Twitter. Pega la URL del tweet y reproduce el contenido directamente en el navegador.
+## Contexto del proyecto
+Web simple para ver videos, imágenes y contenido completo de tweets de X/Twitter sin necesidad de tener la app ni cuenta de Twitter. El usuario pega la URL del tweet y la web muestra el texto completo, autor, fecha, stats (likes, retweets, replies, views) y reproduce el contenido multimedia directamente en el navegador, con opción de descarga.
 
-## Estado
+**Stack:**
+- **Backend**: FastAPI (ASGI) + `yt-dlp` para extracción de medios y metadata
+- **Frontend**: HTML/CSS/JS vanilla, sin frameworks, sin build step
+- **Hosting**: Vercel (serverless, zero-config, auto-detecta `app.py`)
 
-Fase 1 completada. Funcionalidad actual: backend con FastAPI que usa `yt-dlp` para extraer URLs de medios (video/imagen) desde una URL de tweet, frontend vanilla que muestra el resultado en un player HTML5.
+**Convenciones:**
+- No añadir dependencias sin justificación — la simplicidad es prioritaria
+- No añadir frameworks de frontend — HTML vanilla cubre el caso
+- No añadir bases de datos — el estado es efímero
+- Preferir funciones stdlib — sólo `yt-dlp` y `fastapi` como deps externas
+- Validar URLs en backend antes de pasar a `yt-dlp`
+- CORS abierto (web pública sin auth)
 
-## Stack
-
-- **Backend**: FastAPI (ASGI) + `yt-dlp` para extracción de medios
-- **Frontend**: HTML/CSS/JS vanilla, sin frameworks
-- **Hosting**: [Vercel](https://vercel.com) (gratis, serverless, zero-config)
-
-## Por qué este stack
-
-- **FastAPI** sobre Flask: soporte ASGI nativo en Vercel, validación con Pydantic sin código extra
-- **yt-dlp**: estándar de facto para extraer medios de Twitter/X, mantenida activamente, soporta la mayoría de formatos
-- **Vercel**: tier gratis cubre uso personal sin gestión (100 GB bandwidth/mes, HTTPS automático, deploys desde Git)
-- **HTML vanilla**: un solo archivo, sin build step, sin dependencias de npm
-
-## Estructura
-
+**Estructura:**
 ```
 ver-videos-twitter/
 ├── app.py               # FastAPI (serves frontend + API) — Vercel auto-detecta
@@ -33,125 +29,62 @@ ver-videos-twitter/
 └── agents.md            # Este archivo
 ```
 
-### Por qué `app.py` en raíz (no `api/index.py`)
+---
 
-Vercel auto-detecta `app.py` como entrypoint ASGI (FastAPI). Todas las rutas van al mismo handler:
-- `GET /` → sirve el HTML del frontend
-- `POST /api/media` → extrae medios con yt-dlp
+## 1. Flujo de Trabajo por Fases
 
-No necesita rewrites ni config extra. Más simple que `api/index.py` + rewrite.
+### Estructura de Ramas
+- `master` → producción estable
+- `develop` → integración de fases completadas
+- `feature/fase-X-descripcion` → desarrollo de cada fase
 
-## Cómo funciona
+### Proceso por Fase
+1. Crear rama `feature/fase-X-descripcion` desde `develop`
+2. Dividir fase en **todos** específicos (el usuario los define)
+3. Trabajar cada todo con autonomía
+4. Al completar un todo → preguntar antes de continuar
+5. Al completar la fase → esperar validación explícita del usuario
+6. Validación completada → merge a `develop`
 
-1. Usuario pega URL del tweet (formato: `https://x.com/<user>/status/<id>` o `https://twitter.com/...`)
-2. Frontend hace `POST /api/media` con `{url: "..."}`
-3. Backend llama a `yt-dlp` con `download=False` → extrae metadata + URLs directas
-4. Backend filtra formatos: prefiere MP4 directo sobre HLS (m3u8) para mejor compatibilidad
-5. Devuelve JSON con `{type, url, thumbnail}`
-6. Frontend renderiza `<video>` o `<img>` con la URL
+### Regla de Oro
+**Ninguna fase está completa hasta que el usuario lo confirme explícitamente.**
+Sin validación del usuario = sin merge, sin avanzar.
 
-## API
+---
 
-### `GET /`
-Sirve el frontend HTML (desde `public/index.html`).
+## 2. Autonomía y Comunicación
 
-### `POST /api/media`
+### Dentro de un Todo
+- **Autonomía total** para implementar
+- Tomar decisiones técnicas (estructura, librerías, patrones)
+- Hacer commits intermedios si necesario
 
-**Request:**
-```json
-{"url": "https://x.com/usuario/status/1234567890"}
-```
+### Entre Todos o Fases
+- **OBLIGATORIO preguntar** antes de:
+  - Pasar al siguiente todo
+  - Iniciar nueva fase
+  - Cambiar arquitectura o diseño
+  - Modificar archivos críticos sin contexto
 
-**Response (video):**
-```json
-{
-  "media": [{
-    "type": "video",
-    "url": "https://video.twimg.com/...mp4",
-    "thumbnail": "https://pbs.twimg.com/...jpg",
-    "width": 1280,
-    "height": 720,
-    "title": "Tweet title",
-    "duration": 15.5
-  }],
-  "tweet_url": "https://x.com/usuario/status/1234567890"
-}
-```
+### Planes Detallados
+- **Siempre mostrar plan detallado antes de ejecutar**
+- Incluir: qué se va a hacer, por qué, archivos afectados
+- Esperar confirmación antes de proceder
 
-**Response (image):**
-```json
-{
-  "media": [{
-    "type": "image",
-    "url": "https://pbs.twimg.com/media/...jpg",
-    "thumbnail": "https://pbs.twimg.com/media/...jpg",
-    "title": "Tweet title"
-  }],
-  "tweet_url": "https://x.com/usuario/status/1234567890"
-}
-```
+---
 
-**Errores:**
-- `400`: URL inválida (no es formato de tweet)
-- `404`: Tweet no encontrado / eliminado / privado
-- `422`: Error de extracción (yt-dlp no pudo acceder)
-- `500`: Error inesperado
+## 3. Reglas de seguridad
+- Nunca hardcodear secretos, tokens o credenciales en el código.
+- Nunca hacer commit de archivos `.env`.
+- Antes de instalar una dependencia nueva, verificar que sea necesaria y de fuente confiable.
+- No ejecutar `git push --force` sobre ramas compartidas (`master`/`develop`) sin confirmación explícita.
 
-## CORS
+## 4. Uso de herramientas
+- Usar **codebase-memory-mcp** para preguntas estructurales (dónde se llama X, impacto de cambiar Y)
+  en vez de grep/leer archivo por archivo cuando el proyecto ya esté indexado.
+- **Ponytail** está activo en modo `full` por defecto: prioriza soluciones simples,
+  evita añadir dependencias o abstracciones no solicitadas.
 
-El backend acepta cualquier origen (`allow_origins=["*"]`) para que la web funcione sin restricciones. Si en el futuro se quiere restringir, cambiar a una lista de dominios específicos.
-
-## Limitaciones conocidas
-
-### Tweet no encontrado / privado
-`yt-dlp` falla con un `ExtractorError` si el tweet no existe, es privado o la cuenta está suspendida. El backend captura esto y devuelve 500 con mensaje genérico.
-
-### Videos muy antiguos con NSFW gating
-Twitter puede requerir login para videos marcados como sensibles. En ese caso, `yt-dlp` devolverá error. Sin auth no hay workaround (es limitación de X).
-
-### HLS vs MP4
-Algunos videos de X solo están disponibles en formato HLS (m3u8). Estos funcionan en el navegador pero pueden tardar más en empezar a reproducir. El código prioriza MP4 si está disponible.
-
-### Timeout de Vercel
-Vercel Hobby tiene 10s de timeout en funciones. `yt-dlp` extrae info en <5s para tweets normales, pero tweets con muchos medios pueden tardar más. Si esto pasa, el usuario verá error 500.
-
-## Deploy
-
-Ver `README.md` para instrucciones paso a paso. Resumen:
-
-1. Push a GitHub
-2. Importar en Vercel
-3. Vercel detecta FastAPI automáticamente y despliega
-4. Cada push a `main` redespliega
-
-## Desarrollo local
-
-```bash
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-pip install uvicorn  # solo para local, Vercel no lo necesita
-uvicorn app:app --reload
-```
-
-Abre `http://localhost:8000`. FastAPI sirve el frontend en `/` y la API en `/api/media`.
-
-## Próximas mejoras (no implementadas)
-
-- Caché de resultados (mismo tweet no se extrae 2 veces)
-- Soporte para videos de otras plataformas (Instagram, TikTok, Reddit) — yt-dlp ya lo soporta, solo cambiar el extractor
-- Historial de tweets vistos en localStorage
-- Botón de descarga (es un paso más allá del MVP, no se pidió)
-
-## Reglas de contribución
-
-- **No añadir dependencias sin justificación** — la simplicidad es prioritaria
-- **No añadir frameworks de frontend** — HTML vanilla cubre el caso
-- **No añadir bases de datos** — el estado es efímero, no se necesita persistir
-- **Preferir funciones stdlib** — sólo `yt-dlp` y `fastapi` como deps externas
-
-## Seguridad
-
-- **Validar URLs en backend**: regex básico para asegurar que es Twitter/X antes de pasar a `yt-dlp`
-- **No loggear URLs completas**: los IDs de tweet no son sensibles pero mejor prevenir
-- **CORS abierto**: aceptable para este caso (web pública sin auth), revisar si se restringe acceso más adelante
+## 5. Flujo de trabajo (commits)
+- Commits pequeños y descriptivos, alineados a un todo.
+- Antes de cerrar un todo o fase, correr los tests si existen.
