@@ -77,7 +77,7 @@ def _extract_tweet_meta(info):
         },
     }
 
-HTML = Path("public/index.html").read_text(encoding="utf-8")
+HTML = (Path(__file__).parent / "templates" / "index.html").read_text(encoding="utf-8")
 
 app = FastAPI()
 app.add_middleware(
