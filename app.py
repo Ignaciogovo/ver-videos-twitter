@@ -148,7 +148,7 @@ def get_media(req: TweetRequest):
     except Exception:
         pass
 
-    if not synd["media"]:
+    if not synd["media"] and not synd["text"]:
         raise HTTPException(404, "No se encontraron videos ni imágenes en este tweet.")
 
     return {
