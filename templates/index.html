@@ -225,42 +225,15 @@ async function buscar(e) {
 
 function render(data) {
   const result = document.getElementById('result');
-  const { tweet, media } = data;
+  const { tweet, media, quote } = data;
 
   let html = '';
   if (tweet) {
-    const initials = tweet.author.name
-      ? tweet.author.name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)
-      : '?';
-    const dateStr = tweet.date ? new Date(tweet.date).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
-    const stats = tweet.stats;
-    const fmt = n => n != null ? (n >= 1000000 ? (n / 1000000).toFixed(1) + 'M' : n >= 1000 ? (n / 1000).toFixed(1) + 'K' : n) : '-';
-
-    html += `<div class="tweet-card">`;
-    html += `<div class="tweet-header">`;
-    html += `<div class="tweet-avatar">${esc(initials)}</div>`;
-    html += `<div>`;
-    if (tweet.author.url) html += `<a href="${esc(tweet.author.url)}" class="tweet-author-name" target="_blank" rel="noopener">${esc(tweet.author.name)}</a>`;
-    else html += `<span class="tweet-author-name">${esc(tweet.author.name)}</span>`;
-    if (tweet.author.handle) html += `<span class="tweet-author-handle">@${esc(tweet.author.handle)}</span>`;
-    html += `</div></div>`;
-    if (dateStr) html += `<div class="tweet-date">${esc(dateStr)}</div>`;
-    if (tweet.text) html += `<div class="tweet-text">${esc(tweet.text)}</div>`;
-    html += `<div class="tweet-stats">`;
-    html += `<span>❤️ ${esc(fmt(stats.likes))}</span>`;
-    html += `<span>🔁 ${esc(fmt(stats.retweets))}</span>`;
-    html += `<span>💬 ${esc(fmt(stats.replies))}</span>`;
-    if (stats.views != null) html += `<span>👁 ${esc(fmt(stats.views))}</span>`;
-    html += `</div></div>`;
+    html += '<div class="tweet-card">' + renderTweet(tweet) + '</div>';
   }
 
-  if (data.quote) {
-    html += '<div class="quote-card">' + renderTweet(data.quote, true) + '</div>';
-  }
-
-  if (!media.length) {
-    result.innerHTML = html || '<div class="error">No se encontraron medios.</div>';
-    return;
+  if (quote) {
+    html += '<div class="quote-card">' + renderTweet(quote) + '</div>';
   }
 
   for (const m of media) {
@@ -280,16 +253,21 @@ function render(data) {
     }
     html += '</div>';
   }
+
+  if (!html) {
+    result.innerHTML = '<div class="error">No se encontraron medios.</div>';
+    return;
+  }
   result.innerHTML = html;
   document.querySelectorAll('video').forEach(initVideo);
 }
 
-function renderTweet(tweet, compact) {
+function renderTweet(tweet) {
   const initials = tweet.author.name
     ? tweet.author.name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)
     : '?';
   const dateStr = tweet.date ? new Date(tweet.date).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
-  const stats = tweet.stats;
+  const stats = tweet.stats || {};
   const fmt = n => n != null ? (n >= 1000000 ? (n / 1000000).toFixed(1) + 'M' : n >= 1000 ? (n / 1000).toFixed(1) + 'K' : n) : '-';
 
   let h = `<div class="tweet-header">`;
@@ -311,7 +289,6 @@ function renderTweet(tweet, compact) {
         h += `<img src="${esc(m.url)}" alt="" loading="lazy">`;
       }
     }
-    setTimeout(() => document.querySelectorAll('video').forEach(initVideo), 0);
   }
   h += `<div class="tweet-stats">`;
   h += `<span>❤️ ${esc(fmt(stats.likes))}</span>`;
