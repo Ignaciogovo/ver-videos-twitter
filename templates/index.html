@@ -99,13 +99,6 @@ img { height: auto; }
   border-radius: 8px;
   font-size: .9rem;
 }
-.media-title {
-  font-size: .85rem;
-  color: #555;
-  margin-bottom: .5rem;
-  max-height: 3em;
-  overflow: hidden;
-}
 @media (prefers-color-scheme: dark) {
   body { background: #111; color: #eee; }
   .card { background: #1a1a1a; box-shadow: 0 2px 16px rgba(0,0,0,.4); }
@@ -114,7 +107,6 @@ img { height: auto; }
   input:focus { border-color: #1d9bf0; }
   .loader { border-color: #333; border-top-color: #1d9bf0; }
   .error { background: #2a1111; color: #f66; }
-  .media-title { color: #999; }
   .media-item + .media-item { border-top-color: #333; }
   .download-btn.disabled { background: #555; }
 }
@@ -257,7 +249,6 @@ function render(data) {
 
   for (const m of media) {
     html += '<div class="media-item">';
-    if (m.title) html += `<div class="media-title">${esc(m.title)}</div>`;
     if (m.type === 'video') {
       html += `<video controls playsinline poster="${esc(m.thumbnail || '')}" preload="metadata" data-format="${esc(m.format || 'mp4')}">
         <source src="${esc(m.url)}" type="video/mp4">

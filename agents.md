@@ -4,7 +4,7 @@
 Web simple para ver videos, imágenes y contenido completo de tweets de X/Twitter sin necesidad de tener la app ni cuenta de Twitter. El usuario pega la URL del tweet y la web muestra el texto completo, autor, fecha, stats (likes, retweets, replies, views) y reproduce el contenido multimedia directamente en el navegador, con opción de descarga.
 
 **Stack:**
-- **Backend**: FastAPI (ASGI) + `yt-dlp` para extracción de medios y metadata
+- **Backend**: FastAPI (ASGI) + `urllib` (stdlib) para llamar a `api.fxtwitter.com`
 - **Frontend**: HTML/CSS/JS vanilla, sin frameworks, sin build step
 - **Hosting**: Vercel (serverless, zero-config, auto-detecta `app.py`)
 
@@ -12,18 +12,17 @@ Web simple para ver videos, imágenes y contenido completo de tweets de X/Twitte
 - No añadir dependencias sin justificación — la simplicidad es prioritaria
 - No añadir frameworks de frontend — HTML vanilla cubre el caso
 - No añadir bases de datos — el estado es efímero
-- Preferir funciones stdlib — sólo `yt-dlp` y `fastapi` como deps externas
-- Validar URLs en backend antes de pasar a `yt-dlp`
+- Preferir funciones stdlib — sólo `fastapi` como dep externa
+- Validar URLs en backend antes de llamar a fxtwitter
 - CORS abierto (web pública sin auth)
 
 **Estructura:**
 ```
 ver-videos-twitter/
 ├── app.py               # FastAPI (serves frontend + API) — Vercel auto-detecta
-├── public/
+├── templates/
 │   └── index.html       # Frontend (HTML + CSS + JS inline)
-├── requirements.txt     # yt-dlp, fastapi
-├── vercel.json          # Config mínima de Vercel (memory)
+├── requirements.txt     # fastapi
 ├── .gitignore
 ├── README.md
 └── agents.md            # Este archivo
