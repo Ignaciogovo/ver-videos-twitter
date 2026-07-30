@@ -1,3 +1,4 @@
+from datetime import datetime
 from pathlib import Path
 import re
 
@@ -6,6 +7,31 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 import yt_dlp
+
+
+def _extract_tweet_meta(info):
+    ts = info.get("timestamp")
+    date_str = None
+    if ts:
+        try:
+            date_str = datetime.utcfromtimestamp(ts).isoformat()
+        except (TypeError, ValueError):
+            pass
+    return {
+        "text": info.get("description", ""),
+        "author": {
+            "name": info.get("uploader", ""),
+            "handle": info.get("uploader_id", ""),
+            "url": info.get("uploader_url", ""),
+        },
+        "date": date_str,
+        "stats": {
+            "likes": info.get("like_count"),
+            "retweets": info.get("repost_count"),
+            "replies": info.get("comment_count"),
+            "views": info.get("view_count"),
+        },
+    }
 
 HTML = Path("public/index.html").read_text(encoding="utf-8")
 
@@ -56,7 +82,6 @@ def get_media(req: TweetRequest):
         formats = entry.get("formats", [])
         thumbnail = entry.get("thumbnail", "")
         title = entry.get("title", "")
-        duration = entry.get("duration")
 
         videos = [f for f in formats if f.get("vcodec") != "none"]
         if videos:
@@ -74,7 +99,7 @@ def get_media(req: TweetRequest):
                 "width": best.get("width"),
                 "height": best.get("height"),
                 "title": title,
-                "duration": duration,
+                "duration": entry.get("duration"),
             })
         elif thumbnail:
             results.append({
@@ -91,7 +116,9 @@ def get_media(req: TweetRequest):
                 "title": title,
             })
 
-    if not results:
+    tweet = _extract_tweet_meta(info)
+
+    if not results and not tweet:
         raise HTTPException(404, "No se encontraron videos ni imágenes en este tweet.")
 
-    return {"media": results, "tweet_url": url}
+    return {"tweet": tweet, "media": results, "tweet_url": url}
