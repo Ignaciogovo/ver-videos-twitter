@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="referrer" content="no-referrer">
+<title>Ver videos de X/Twitter</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: system-ui, -apple-system, sans-serif;
+  background: #f5f5f5;
+  color: #222;
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+.card {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 2px 16px rgba(0,0,0,.08);
+  padding: 2rem;
+  width: 100%;
+  max-width: 640px;
+}
+h1 { font-size: 1.4rem; margin-bottom: .25rem; }
+p.sub { color: #666; font-size: .9rem; margin-bottom: 1.5rem; }
+form { display: flex; gap: .5rem; }
+input {
+  flex: 1;
+  padding: .7rem 1rem;
+  border: 1.5px solid #ddd;
+  border-radius: 8px;
+  font-size: .95rem;
+  outline: none;
+  transition: border-color .2s;
+}
+input:focus { border-color: #1d9bf0; }
+input::placeholder { color: #aaa; }
+button {
+  padding: .7rem 1.4rem;
+  background: #1d9bf0;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: .95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .2s;
+}
+button:hover { background: #0d8ae0; }
+button:disabled { opacity: .6; cursor: not-allowed; }
+.result {
+  margin-top: 1.5rem;
+  min-height: 60px;
+}
+.loader {
+  width: 28px; height: 28px;
+  border: 3px solid #e0e0e0;
+  border-top-color: #1d9bf0;
+  border-radius: 50%;
+  animation: spin .7s linear infinite;
+  margin: 1rem auto;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+video, img {
+  width: 100%;
+  border-radius: 8px;
+  display: block;
+}
+video { max-height: 70vh; background: #000; }
+img { height: auto; }
+.media-item + .media-item { margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid #eee; }
+.download-btn {
+  display: inline-block;
+  margin-top: .5rem;
+  padding: .4rem .9rem;
+  background: #1d9bf0;
+  color: #fff;
+  border-radius: 6px;
+  font-size: .85rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+.download-btn:hover { background: #0d8ae0; }
+.download-btn.disabled {
+  background: #999;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+.error {
+  background: #fff0f0;
+  color: #c00;
+  padding: 1rem;
+  border-radius: 8px;
+  font-size: .9rem;
+}
+.media-title {
+  font-size: .85rem;
+  color: #555;
+  margin-bottom: .5rem;
+  max-height: 3em;
+  overflow: hidden;
+}
+@media (prefers-color-scheme: dark) {
+  body { background: #111; color: #eee; }
+  .card { background: #1a1a1a; box-shadow: 0 2px 16px rgba(0,0,0,.4); }
+  p.sub { color: #999; }
+  input { background: #222; border-color: #333; color: #eee; }
+  input:focus { border-color: #1d9bf0; }
+  .loader { border-color: #333; border-top-color: #1d9bf0; }
+  .error { background: #2a1111; color: #f66; }
+  .media-title { color: #999; }
+  .media-item + .media-item { border-top-color: #333; }
+  .download-btn.disabled { background: #555; }
+}
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Ver videos de X/Twitter</h1>
+  <p class="sub">Pega un enlace de tweet con video o imagen. Sin app, sin cuenta.</p>
+  <form onsubmit="buscar(event)">
+    <input type="url" id="url" placeholder="https://x.com/usuario/status/123456" required>
+    <button type="submit" id="btn">Ver</button>
+  </form>
+  <div id="result" class="result"></div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
+<script>
+async function buscar(e) {
+  e.preventDefault();
+  const url = document.getElementById('url').value.trim();
+  const result = document.getElementById('result');
+  const btn = document.getElementById('btn');
+  if (!url) return;
+
+  result.innerHTML = '<div class="loader"></div>';
+  btn.disabled = true;
+
+  try {
+    const res = await fetch('/api/media', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Error desconocido');
+    render(data.media);
+  } catch (err) {
+    result.innerHTML = `<div class="error">${err.message}</div>`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function render(media) {
+  const result = document.getElementById('result');
+  if (!media.length) {
+    result.innerHTML = '<div class="error">No se encontraron medios.</div>';
+    return;
+  }
+  let html = '';
+  for (const m of media) {
+    html += '<div class="media-item">';
+    if (m.title) html += `<div class="media-title">${esc(m.title)}</div>`;
+    if (m.type === 'video') {
+      html += `<video controls playsinline poster="${esc(m.thumbnail || '')}" preload="metadata" data-format="${esc(m.format || 'mp4')}">
+        <source src="${esc(m.url)}" type="video/mp4">
+      </video>`;
+      if (m.format === 'hls') {
+        html += `<span class="download-btn disabled" title="Este video usa formato HLS y no se puede descargar directamente">Descarga no disponible (HLS)</span>`;
+      } else {
+        html += `<button onclick="downloadFile('${esc(m.url)}', 'video.mp4')" class="download-btn">Descargar video</button>`;
+      }
+    } else {
+      html += `<img src="${esc(m.url)}" alt="${esc(m.title || '')}" loading="lazy">`;
+      html += `<button onclick="downloadFile('${esc(m.url)}', 'imagen.jpg')" class="download-btn">Descargar imagen</button>`;
+    }
+    html += '</div>';
+  }
+  result.innerHTML = html;
+  document.querySelectorAll('video').forEach(initVideo);
+}
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s || '';
+  return d.innerHTML;
+}
+
+async function downloadFile(url, filename) {
+  try {
+    const res = await fetch(url);
+    const blob = await res.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  } catch {
+    window.open(url, '_blank');
+  }
+}
+
+function initVideo(video) {
+  const format = video.dataset.format;
+  const src = video.querySelector('source').src;
+  
+  if (format === 'hls' && Hls.isSupported()) {
+    const hls = new Hls();
+    hls.loadSource(src);
+    hls.attachMedia(video);
+  } else if (format === 'hls' && video.canPlayType('application/vnd.apple.mpegurl')) {
+    video.src = src;
+  }
+}
+</script>
+</body>
+</html>
