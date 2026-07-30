@@ -65,11 +65,34 @@ def _fxtwitter_extract(twid):
             media.append(parsed)
 
     quote = tweet.get("quote")
+    quote_data = None
     if quote:
-        for item in (quote.get("media", {}).get("all", []) or []):
-            parsed = _parse_media(item)
-            if parsed:
-                media.append(parsed)
+        qa = quote.get("author", {})
+        quote_date = quote.get("created_at", "")
+        quote_date_str = None
+        if quote_date:
+            try:
+                dt = datetime.strptime(quote_date, "%a %b %d %H:%M:%S %z %Y")
+                quote_date_str = dt.isoformat()
+            except (ValueError, TypeError):
+                quote_date_str = quote_date
+        quote_data = {
+            "text": quote.get("text", ""),
+            "author": {
+                "name": qa.get("name", ""),
+                "handle": qa.get("screen_name", ""),
+                "url": qa.get("url", f"https://x.com/{qa.get('screen_name', '')}"),
+            },
+            "date": quote_date_str,
+            "stats": {
+                "likes": quote.get("likes"),
+                "retweets": quote.get("retweets"),
+                "replies": quote.get("replies"),
+                "views": quote.get("views"),
+            },
+            "media": [m for item in (quote.get("media", {}).get("all", []) or []) if (m := _parse_media(item))],
+            "url": quote.get("url", ""),
+        }
 
     return {
         "text": text,
@@ -86,6 +109,7 @@ def _fxtwitter_extract(twid):
             "views": tweet.get("views"),
         },
         "media": media,
+        "quote": quote_data,
     }
 
 
@@ -125,7 +149,7 @@ def get_media(req: TweetRequest):
     if not result:
         raise HTTPException(404, "Tweet no encontrado. Puede estar eliminado o ser privado.")
 
-    if not result["text"] and not result["media"]:
+    if not result["text"] and not result["media"] and not result.get("quote"):
         raise HTTPException(404, "No se encontraron videos ni imágenes en este tweet.")
 
     return {
@@ -136,5 +160,6 @@ def get_media(req: TweetRequest):
             "stats": result["stats"],
         },
         "media": result["media"],
+        "quote": result["quote"],
         "tweet_url": url,
     }

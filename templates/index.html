@@ -110,6 +110,18 @@ img { height: auto; }
   .media-item + .media-item { border-top-color: #333; }
   .download-btn.disabled { background: #555; }
 }
+.quote-card {
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 1rem;
+  margin: .75rem 0;
+}
+.quote-card .tweet-author-name { font-size: .85rem; }
+.quote-card .tweet-text { font-size: .9rem; }
+.quote-card .tweet-stats { font-size: .75rem; gap: .75rem; }
+@media (prefers-color-scheme: dark) {
+  .quote-card { border-color: #444; }
+}
 .tweet-card {
   padding: 1rem 1.25rem;
   border-bottom: 1px solid #eee;
@@ -242,6 +254,10 @@ function render(data) {
     html += `</div></div>`;
   }
 
+  if (data.quote) {
+    html += '<div class="quote-card">' + renderTweet(data.quote, true) + '</div>';
+  }
+
   if (!media.length) {
     result.innerHTML = html || '<div class="error">No se encontraron medios.</div>';
     return;
@@ -266,6 +282,44 @@ function render(data) {
   }
   result.innerHTML = html;
   document.querySelectorAll('video').forEach(initVideo);
+}
+
+function renderTweet(tweet, compact) {
+  const initials = tweet.author.name
+    ? tweet.author.name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)
+    : '?';
+  const dateStr = tweet.date ? new Date(tweet.date).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+  const stats = tweet.stats;
+  const fmt = n => n != null ? (n >= 1000000 ? (n / 1000000).toFixed(1) + 'M' : n >= 1000 ? (n / 1000).toFixed(1) + 'K' : n) : '-';
+
+  let h = `<div class="tweet-header">`;
+  h += `<div class="tweet-avatar">${esc(initials)}</div>`;
+  h += `<div>`;
+  if (tweet.author.url) h += `<a href="${esc(tweet.author.url)}" class="tweet-author-name" target="_blank" rel="noopener">${esc(tweet.author.name)}</a>`;
+  else h += `<span class="tweet-author-name">${esc(tweet.author.name)}</span>`;
+  if (tweet.author.handle) h += `<span class="tweet-author-handle">@${esc(tweet.author.handle)}</span>`;
+  h += `</div></div>`;
+  if (dateStr) h += `<div class="tweet-date">${esc(dateStr)}</div>`;
+  if (tweet.text) h += `<div class="tweet-text">${esc(tweet.text)}</div>`;
+  if (tweet.media && tweet.media.length) {
+    for (const m of tweet.media) {
+      if (m.type === 'video') {
+        h += `<video controls playsinline poster="${esc(m.thumbnail || '')}" preload="metadata" data-format="${esc(m.format || 'mp4')}">
+          <source src="${esc(m.url)}" type="video/mp4">
+        </video>`;
+      } else {
+        h += `<img src="${esc(m.url)}" alt="" loading="lazy">`;
+      }
+    }
+    setTimeout(() => document.querySelectorAll('video').forEach(initVideo), 0);
+  }
+  h += `<div class="tweet-stats">`;
+  h += `<span>❤️ ${esc(fmt(stats.likes))}</span>`;
+  h += `<span>🔁 ${esc(fmt(stats.retweets))}</span>`;
+  h += `<span>💬 ${esc(fmt(stats.replies))}</span>`;
+  if (stats.views != null) h += `<span>👁 ${esc(fmt(stats.views))}</span>`;
+  h += `</div>`;
+  return h;
 }
 
 function esc(s) {
