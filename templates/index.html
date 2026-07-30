@@ -285,8 +285,14 @@ function renderTweet(tweet) {
         h += `<video controls playsinline poster="${esc(m.thumbnail || '')}" preload="metadata" data-format="${esc(m.format || 'mp4')}">
           <source src="${esc(m.url)}" type="video/mp4">
         </video>`;
+        if (m.format === 'hls') {
+          h += `<span class="download-btn disabled" title="Este video usa formato HLS y no se puede descargar directamente">Descarga no disponible (HLS)</span>`;
+        } else {
+          h += `<button onclick="downloadFile('${esc(m.url)}', 'video.mp4')" class="download-btn">Descargar video</button>`;
+        }
       } else {
         h += `<img src="${esc(m.url)}" alt="" loading="lazy">`;
+        h += `<button onclick="downloadFile('${esc(m.url)}', 'imagen.jpg')" class="download-btn">Descargar imagen</button>`;
       }
     }
   }
